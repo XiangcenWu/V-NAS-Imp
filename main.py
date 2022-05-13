@@ -131,7 +131,7 @@ val_ds = CacheDataset(
     data=Val_datalist, transform=val_transforms, cache_num=1, cache_rate=1.0, num_workers=4
 )
 val_loader = DataLoader(
-    val_ds, batch_size=2, shuffle=False, num_workers=4, pin_memory=True
+    val_ds, batch_size=1, shuffle=False, num_workers=4, pin_memory=True
 )
 gpu_idx = 2
 if torch.cuda.is_available():
@@ -164,7 +164,7 @@ def validation(val_loader):
         dice_metric.reset()
     return mean_dice_val
 
-print(validation(val_loader=val_loader))
+
 
 
 
@@ -190,14 +190,14 @@ def train(global_step, train_loader, dice_val_best):
         epoch_loss += loss.item()
         optimizer.step()
         optimizer.zero_grad()
-
-        dice_val = validation(val_loader)
-        if dice_val > dice_val_best:
-            dice_val_best = dice_val
-            torch.save(
-                model.state_dict(), "./model/best_metric_model.pth"
-            )
-            print("Model Was Saved !")
+        if (True):
+            dice_val = validation(val_loader)
+            if dice_val > dice_val_best:
+                dice_val_best = dice_val
+                torch.save(
+                    model.state_dict(), "./model/best_metric_model.pth"
+                )
+                print("Model Was Saved !")
     global_step += 1
 
     return global_step, dice_val_best
@@ -210,4 +210,3 @@ global_step = 0
 while global_step < max_iterations:
     global_step, dice_val_best = train(global_step, train_loader, dice_val_best)
     print("At global step{}, dice_val_best {}".format(global_step, dice_val_best))
-
