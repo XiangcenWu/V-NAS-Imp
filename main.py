@@ -55,7 +55,7 @@ train_transforms = Compose(
         RandCropByPosNegLabeld(
             keys=["image", "label"],
             label_key="label",
-            spatial_size=(64, 64, 64),
+            spatial_size=(96, 96, 96),
             pos=1,
             neg=1,
             num_samples=4,
@@ -112,8 +112,8 @@ val_transforms = Compose(
 
 
 # load the 
-Train_datalist = load_decathlon_datalist("./P_segmentation/Task07_Pancreas/dataset.json", True, "training")
-Val_datalist = load_decathlon_datalist("./P_segmentation/Task07_Pancreas/dataset.json", True, "val")
+Train_datalist = load_decathlon_datalist("./data/dataset.json", True, "training")
+Val_datalist = load_decathlon_datalist("./data/dataset.json", True, "val")
 
 
 
