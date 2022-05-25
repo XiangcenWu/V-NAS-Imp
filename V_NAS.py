@@ -165,82 +165,91 @@ class Decoder(nn.Module):
         # set the alpha requires grad=True
         self.alpha.requires_grad_(False)
 
+class PVP(nn.Module):
+
+
+    def __init__(self, num_in, num_out):
+        super().__init__()
+        intermediate_out = int(num_in/4)
+        self.block_1 = nn.Sequential(
+            nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
+            nn.Upsample((96, 96, 96), mode="trilinear")
+        )
+        self.block_2 = nn.Sequential(
+            nn.MaxPool3d((2, 2, 2), (2, 2, 2)),
+            nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
+            nn.Upsample((96, 96, 96), mode="trilinear")
+        )
+        self.block_3 = nn.Sequential(
+            nn.MaxPool3d((4, 4, 4), (4, 4, 4)),
+            nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
+            nn.Upsample((96, 96, 96), mode="trilinear")
+        )
+        self.block_4 = nn.Sequential(
+            nn.MaxPool3d((8, 8, 8), (8, 8, 8)),
+            nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
+            nn.Upsample((96, 96, 96), mode="trilinear")
+        )
+        self.out = nn.Conv3d(num_in, num_out, (1, 1, 1), (1, 1, 1))
+
+    def forward(self, x):
+        x1 = self.block_1(x)
+        x2 = self.block_1(x)
+        x3 = self.block_1(x)
+        x4 = self.block_1(x)
+
+        x = torch.cat((x1, x2, x3, x4), dim=1)
+
+        return self.out(x)
+
 
 class Network(nn.Module):
     
     
-    def __init__(self, out_channel):
+    def __init__(self, input=(96, 96, 96), out_channel=3):
         super().__init__()
-        # input = 1 64**3
-        # output = 24 32**3
-        self.cmd_1 = nn.Sequential(
-            nn.Conv3d(1, 24, (5, 5, 1), (2, 2, 1), (2, 2, 0)),
-            nn.MaxPool3d((1, 1, 2)),
-            nn.Conv3d(24, 24, 1, 1)
-        )
-        # input = 24 32**3
-        # output = 24 32**3
-        self.Encoder_1 = nn.Sequential(*self.init_encoder(24, 3))
-        # input = 24 32**3
-        # output = 30 16**3
-        self.cmd_2 = nn.Sequential(
-            nn.Conv3d(24, 24, (1, 1, 1), (2, 2, 1), (0, 0, 0)),
+        self.first_three_op = nn.Sequential(
+            nn.Conv3d(1, 24, (7, 7, 1), (2, 2, 1), (3, 3, 0)),
             nn.MaxPool3d((1, 1, 2), (1, 1, 2)),
-            nn.Conv3d(24, 30, 1, 1)
-        )
-        # input = 30 16**3
-        # output = 30 16**3
-        self.Encoder_2 = nn.Sequential(*self.init_encoder(30, 4))
-        # input = 30 16**3
-        # output = 32 8**3
-        self.cmd_3 = nn.Sequential(
-            nn.Conv3d(30, 30, (1, 1, 1), (2, 2, 1), (0, 0, 0)),
-            nn.MaxPool3d((1, 1, 2), (1, 1, 2)),
-            nn.Conv3d(30, 32, 1, 1)
-        )
-        # input = 32 8**3
-        # output = 32 8**3
-        self.Encoder_3 = nn.Sequential(*self.init_encoder(32, 6))
-        # input = 32 8**3
-        # output = 64 4**3
-        self.cmd_4 = nn.Sequential(
-            nn.Conv3d(32, 32, (1, 1, 1), (2, 2, 1), (0, 0, 0)),
-            nn.MaxPool3d((1, 1, 2), (1, 1, 2)),
-            nn.Conv3d(32, 64, 1, 1)
-        )
-        # input = 64 4**3
-        # output = 64 4**3
-        self.Encoder_4 = nn.Sequential(*self.init_encoder(64, 3))
+            nn.Conv3d(24, 40, (1, 1, 3), (1, 1, 1), (0, 0, 1)),
+        ) # (B, 40, 48, 48, 48)
 
-        #################################Decoder#############################
-        self.up_1 = nn.Sequential(
-            nn.Conv3d(64, 32, 1, 1),
-            nn.Upsample((8, 8, 8), mode='trilinear')
-        )
-
-        self.Decoder_1 = nn.Sequential(*self.init_decoder(32))
-
-        self.up_2 = nn.Sequential(
-            nn.Conv3d(32, 30, 1, 1),
-            nn.Upsample((16, 16, 16), mode='trilinear')
-        )
-
-        self.Decoder_2 = nn.Sequential(*self.init_decoder(30))
-
-        self.up_3 = nn.Sequential(
-            nn.Conv3d(30, 24, 1, 1),
-            nn.Upsample((32, 32, 32), mode='trilinear')
-        )
-
-        self.Decoder_3 = nn.Sequential(*self.init_decoder(24))
-        self.Decoder_4 = nn.Sequential(*self.init_decoder(24))
-
-        self.up_4 = nn.Sequential(
-            nn.Conv3d(24, out_channel, 1, 1),
-            nn.Upsample((64, 64, 64), mode='trilinear')
-        )
-
+        self.mp_222 = nn.MaxPool3d((2, 2, 2), (2, 2, 2)) # (B, 40, 24, 24, 24)
         
+        
+        self.Encoder_1 = nn.Sequential(*self.init_encoder(40, 3)) # (B, 40, 24, 24, 24)
+
+        self.cmd_2 = nn.Sequential(*self.init_cmd(40, 60)) # (B, 60, 12, 12, 12)
+        self.Encoder_2 = nn.Sequential(*self.init_encoder(60, 4)) # (B, 60, 12, 12, 12)
+
+        self.cmd_3 = nn.Sequential(*self.init_cmd(60, 80)) # (B, 80, 6, 6, 6)
+        self.Encoder_3 = nn.Sequential(*self.init_encoder(80, 6)) # (B, 80, 6, 6, 6)
+
+        self.cmd_4 = nn.Sequential(*self.init_cmd(80, 160))
+        self.Encoder_4 = nn.Sequential(*self.init_encoder(160, 3))
+
+        # #################################Decoder#############################
+        self.up_1 = nn.Sequential(*self.init_up(160, 80, (6, 6, 6))) # (B, 80, 6, 6, 6)
+
+        self.Decoder_1 = nn.Sequential(*self.init_decoder(80)) # (B, 80, 6, 6, 6)
+        self.up_2 = nn.Sequential(*self.init_up(80, 60, (12, 12, 12))) # (B, 60, 12, 12, 12)
+
+        self.Decoder_2 = nn.Sequential(*self.init_decoder(60)) # (B, 60, 12, 12, 12)
+        self.up_3 = nn.Sequential(*self.init_up(60, 40, (24, 24, 24))) # (B, 40, 24, 24, 24)
+
+        self.Decoder_3 = nn.Sequential(*self.init_decoder(40)) # (B, 40, 24, 24, 24)
+
+
+
+        self.Decoder_4 = nn.Sequential(*self.init_decoder(40)) # (B, 40, 24, 24, 24)
+        self.up_4 = nn.Sequential(*self.init_up(40, 40, (48, 48, 48))) # (B, 40, 48, 48, 48)
+
+        self.Decoder_5 = nn.Sequential(*self.init_decoder(40))
+
+        # change this into a pyramid
+        self.pvp = PVP(40, 3)
+
+
 
         self.cells = [
             self.Encoder_1,
@@ -251,27 +260,29 @@ class Network(nn.Module):
             self.Decoder_2,
             self.Decoder_3,
             self.Decoder_4,
+            self.Decoder_5,
         ]
-         
-    
+
+
 
     def forward(self, x):
-        # Skip connection has not been written yet
-        x1 = self.cmd_1(x)
-        x2 = self.Encoder_1(x1)
-        x3 = self.Encoder_2(self.cmd_2(x2))
-        x4 = self.Encoder_3(self.cmd_3(x3))
-        
+        x1 = self.first_three_op(x)
+        x2 = self.mp_222(x1)
+        x3 = self.Encoder_1(x2)
+        x4 = self.Encoder_2(self.cmd_2(x3))
+        x5 = self.Encoder_3(self.cmd_3(x4))
+        x6 = self.Encoder_4(self.cmd_4(x5))
 
-        x5 = self.Encoder_4(self.cmd_4(x4))
-
-        x4 = x4 + self.Decoder_1(self.up_1(x5))
-        x3 = x3 + self.Decoder_2(self.up_2(x4))
-        x2 = x2 + self.Decoder_3(self.up_3(x3))
-        x1 = x1 + self.Decoder_4(x2)
+        x5 = x5 + self.up_1(x6)
+        x4 = x4 + self.up_2(self.Decoder_1(x5))
+        x3 = x3 + self.up_3(self.Decoder_2(x4))
+        x2 = x2 + self.Decoder_3(x3)
+        x1 = x1 + self.up_4(self.Decoder_4(x2))
+        x = self.Decoder_5(x1)
         
         
-        return self.up_4(x1)
+        # x = self.pvp(x1)
+        return self.pvp(x)
 
 
     def update_alpha(self):
@@ -296,6 +307,31 @@ class Network(nn.Module):
         for _ in range(num_encoder):
             encoder.append(Encoder(num_features, num_features))
         return encoder
+
+    def init_cmd(self, num_in, num_out):
+        """Conv-Max Pool Down operation in the VNAS paper, this operation will downsample the size of 3d feature map
+
+        Args:
+            num_in (int): input number of feature map's channel
+            num_out (int):  output number of feature map's channel
+
+        Returns:
+            list: list of operations ready to feed into a nn.Seqential module
+        """
+
+        cmd = [
+            nn.Conv3d(num_in, num_in, (1, 1, 1), (2, 2, 1), (0, 0, 0)),
+            nn.MaxPool3d((1, 1, 2), (1, 1, 2)),
+            nn.Conv3d(num_in, num_out, 1, 1)
+        ]
+
+        return cmd
+
+    def init_up(self, num_in, num_out, output_size):
+        return [
+            nn.Conv3d(num_in, num_out, 1, 1),
+            nn.Upsample(output_size, mode='trilinear')
+        ]
 
     def log(self):
         for i in self.cells:
@@ -396,9 +432,12 @@ def check():
 
 def check2():
     model = Network(1)
-    x = torch.rand(2, 1, 64, 64, 64)
+    # x = torch.rand(2, 1, 64, 64, 64)
+    # o = model(x)
+    # print(o.shape)
+    x = torch.rand(1, 1, 96, 96, 96)
     o = model(x)
     print(o.shape)
 
 
-# check2()
+check2()
