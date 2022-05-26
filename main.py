@@ -8,14 +8,8 @@ from monai.data import (
     CacheDataset,
     load_decathlon_datalist,
 )
-
-
-
 # my implementation
-
-from V_NAS import Network
-
-
+from V_NAS import Network, get_device
 from monai.transforms import (
     AsDiscrete,
     AddChanneld,
@@ -31,7 +25,7 @@ from monai.transforms import (
     RandRotate90d,
     ToTensord,
 )
-
+device = get_device(2)
 
 train_transforms = Compose(
     [
@@ -134,99 +128,3 @@ val_loader = DataLoader(
     val_ds, batch_size=1, shuffle=True, num_workers=4, pin_memory=True
 )
 print("num of train_ds {}, num of val_ds {}".format(len(train_ds), len(val_ds)))
-
-
-
-gpu_idx = 2
-if torch.cuda.is_available():
-    device = 'cuda:' + str(gpu_idx)
-else:
-    device = 'cpu'
-
-
-post_label = AsDiscrete(to_onehot=3)
-post_pred = AsDiscrete(argmax=True, to_onehot=3)
-dice_metric = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
-
-
-
-
-model = Network(3).to(device)
-def validation(model, val_loader):
-    model.eval()
-    with torch.no_grad():
-        for step, batch in enumerate(val_loader):
-            val_inputs, val_labels = (batch["image"].to(device), batch["label"].to(device))
-            val_outputs = sliding_window_inference(val_inputs, (64, 64, 64), 4, model)
-            val_labels_list = decollate_batch(val_labels)
-            val_labels_converted = [post_label(x) for x in val_labels_list]
-            val_output_converted = [post_pred(x) for x in val_outputs]
-            dice_metric(y_pred=val_output_converted, y=val_labels_converted)
-
-
-        mean_dice_val = dice_metric.aggregate().item()
-        dice_metric.reset()
-    return mean_dice_val
-
-
-def colored(r, g, b, text):
-    return "\033[38;2;{};{};{}m{} \033[38;2;255;255;255m".format(r, g, b, text)
-
-
-
-
-eval_num = 10
-max_iterations = 5000
-loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
-torch.backends.cudnn.benchmark = True
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
-
-val_list = []
-def train(model, global_step, train_loader, dice_val_best):
-    model.train()
-    epoch_loss = 0
-
-    step = 0
-    for step, batch in enumerate(train_loader):
-        step += 1
-        x, y = batch["image"].to(device), batch["label"].to(device)
-        o = model(x)
-        loss = loss_function(o, y)
-        loss.backward()
-        epoch_loss += loss.item()
-        optimizer.step()
-        optimizer.zero_grad()
-        print("--------PRINTING LOSS IN BATCHES--------")
-        print("Global step {}, local step {}, loss {}, best dice {}".format(global_step, step, loss.item(), dice_val_best))
-
-
-
-    if (global_step % eval_num == 0):
-        dice_val = validation(model, val_loader)
-        print("--------PRINTING DICE IN VALIDATIONS_SET--------")
-        print("At global_step {}, local_step {}, dice mean score: {}".format(global_step, step, dice_val))
-        val_list.append(dice_val)
-        if dice_val > dice_val_best:
-            dice_val_best = dice_val
-            
-            torch.save(
-                model.state_dict(), "./model/best_metric_model.pth"
-            )
-            print(colored(0, 255, 0, "YYYYYYYY  Model Was Saved YYYYYYYYYYY"))
-        else:
-            print(colored(255, 0, 0, "xxxxxxxxx Model was not saved xxxxxxxxxx"))
-            print("xxxxxxxxx Model was not saved xxxxxxxxxx")
-    global_step += 1
-
-    return global_step, dice_val_best
-
-eval_num = 10
-max_iterations = 2500
-
-dice_val_best = 0
-
-global_step = 0
-while global_step < max_iterations:
-    print("This is EPOCH {}".format(global_step))
-    global_step, dice_val_best = train(model, global_step, train_loader, dice_val_best)
-    print("At global step{}, dice_val_best {}".format(global_step, dice_val_best))

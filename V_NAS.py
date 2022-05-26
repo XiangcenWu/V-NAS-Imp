@@ -1,3 +1,4 @@
+from os import device_encoding
 import torch
 import torch.nn as nn
 from torch.nn.functional import interpolate
@@ -10,6 +11,17 @@ def get_params_to_update(model):
         if param.requires_grad == True:
             params_to_update.append(param)
     return params_to_update
+
+def get_device(device_idx):
+
+
+    gpu_idx = device_idx
+    if torch.cuda.is_available():
+        device = 'cuda:' + str(gpu_idx)
+    else:
+        device = 'cpu'
+
+    return device
 
 
 class Encoder(nn.Module):
@@ -67,6 +79,10 @@ class Encoder(nn.Module):
             paras.requires_grad_(True)
         # set the alpha requires grad=True
         self.alpha.requires_grad_(False)
+
+    def update_every(self):
+        for paras in self.parameters():
+            paras.requires_grad_(True)
 
 
 
@@ -165,30 +181,39 @@ class Decoder(nn.Module):
         # set the alpha requires grad=True
         self.alpha.requires_grad_(False)
 
+    def update_every(self):
+        for paras in self.parameters():
+            paras.requires_grad_(True)
+
+
 class PVP(nn.Module):
 
 
-    def __init__(self, num_in, num_out):
+    def __init__(self, num_in, num_out, size=(96, 96, 96)):
         super().__init__()
         intermediate_out = int(num_in/4)
         self.block_1 = nn.Sequential(
             nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
-            nn.Upsample((96, 96, 96), mode="trilinear")
+            nn.Upsample(size, mode="trilinear"),
+            nn.ReLU()
         )
         self.block_2 = nn.Sequential(
             nn.MaxPool3d((2, 2, 2), (2, 2, 2)),
             nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
-            nn.Upsample((96, 96, 96), mode="trilinear")
+            nn.Upsample(size, mode="trilinear"),
+            nn.ReLU()
         )
         self.block_3 = nn.Sequential(
             nn.MaxPool3d((4, 4, 4), (4, 4, 4)),
             nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
-            nn.Upsample((96, 96, 96), mode="trilinear")
+            nn.Upsample(size, mode="trilinear"),
+            nn.ReLU()
         )
         self.block_4 = nn.Sequential(
             nn.MaxPool3d((8, 8, 8), (8, 8, 8)),
             nn.Conv3d(num_in, intermediate_out, (1, 1, 1), (1, 1, 1)), 
-            nn.Upsample((96, 96, 96), mode="trilinear")
+            nn.Upsample(size, mode="trilinear"),
+            nn.ReLU()
         )
         self.out = nn.Conv3d(num_in, num_out, (1, 1, 1), (1, 1, 1))
 
@@ -212,6 +237,7 @@ class Network(nn.Module):
             nn.Conv3d(1, 24, (7, 7, 1), (2, 2, 1), (3, 3, 0)),
             nn.MaxPool3d((1, 1, 2), (1, 1, 2)),
             nn.Conv3d(24, 40, (1, 1, 3), (1, 1, 1), (0, 0, 1)),
+            nn.ReLU()
         ) # (B, 40, 48, 48, 48)
 
         self.mp_222 = nn.MaxPool3d((2, 2, 2), (2, 2, 2)) # (B, 40, 24, 24, 24)
@@ -229,25 +255,25 @@ class Network(nn.Module):
         self.Encoder_4 = nn.Sequential(*self.init_encoder(160, 3))
 
         # #################################Decoder#############################
-        self.up_1 = nn.Sequential(*self.init_up(160, 80, (6, 6, 6))) # (B, 80, 6, 6, 6)
+        self.up_1 = nn.Sequential(*self.init_up(160, 80, tuple((int(ti/16) for ti in input)))) # (B, 80, 6, 6, 6)
 
         self.Decoder_1 = nn.Sequential(*self.init_decoder(80)) # (B, 80, 6, 6, 6)
-        self.up_2 = nn.Sequential(*self.init_up(80, 60, (12, 12, 12))) # (B, 60, 12, 12, 12)
+        self.up_2 = nn.Sequential(*self.init_up(80, 60, tuple((int(ti/8) for ti in input)))) # (B, 60, 12, 12, 12)
 
         self.Decoder_2 = nn.Sequential(*self.init_decoder(60)) # (B, 60, 12, 12, 12)
-        self.up_3 = nn.Sequential(*self.init_up(60, 40, (24, 24, 24))) # (B, 40, 24, 24, 24)
+        self.up_3 = nn.Sequential(*self.init_up(60, 40, tuple((int(ti/4) for ti in input)))) # (B, 40, 24, 24, 24)
 
         self.Decoder_3 = nn.Sequential(*self.init_decoder(40)) # (B, 40, 24, 24, 24)
 
 
 
         self.Decoder_4 = nn.Sequential(*self.init_decoder(40)) # (B, 40, 24, 24, 24)
-        self.up_4 = nn.Sequential(*self.init_up(40, 40, (48, 48, 48))) # (B, 40, 48, 48, 48)
+        self.up_4 = nn.Sequential(*self.init_up(40, 40, tuple((int(ti/2) for ti in input)))) # (B, 40, 48, 48, 48)
 
         self.Decoder_5 = nn.Sequential(*self.init_decoder(40))
 
         # change this into a pyramid
-        self.pvp = PVP(40, 3)
+        self.pvp = PVP(40, 3, input)
 
 
 
@@ -272,6 +298,8 @@ class Network(nn.Module):
         x4 = self.Encoder_2(self.cmd_2(x3))
         x5 = self.Encoder_3(self.cmd_3(x4))
         x6 = self.Encoder_4(self.cmd_4(x5))
+        
+        
 
         x5 = x5 + self.up_1(x6)
         x4 = x4 + self.up_2(self.Decoder_1(x5))
@@ -296,9 +324,15 @@ class Network(nn.Module):
             for cell in cell_outer:
                 cell.update_w()
 
+    def update_every(self):
+        for cell_outer in self.cells:
+            for cell in cell_outer:
+                cell.update_every()
+
+
     def init_decoder(self, num_features):
         decoder = []
-        for _ in range(3):
+        for _ in range(5):
             decoder.append(Decoder(num_features, num_features))
         return decoder
 
@@ -340,11 +374,11 @@ class Network(nn.Module):
 
 
 def check2():
-    model = Network(1)
+    model = Network((64, 64, 64), 3)
     # x = torch.rand(2, 1, 64, 64, 64)
     # o = model(x)
     # print(o.shape)
-    x = torch.rand(1, 1, 96, 96, 96)
+    x = torch.rand(1, 1, 64, 64, 64)
     o = model(x)
     print(o.shape)
 
