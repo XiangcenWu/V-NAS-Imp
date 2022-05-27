@@ -85,9 +85,10 @@ train_transforms = Compose(
     ]
 )
 
+
 # Define the train loader and the val loader
-Train_datalist = load_decathlon_datalist("./data/dataset.json", True, "training")
-# Val_datalist = load_decathlon_datalist("./data/dataset.json", True, "val")
+Train_datalist = load_decathlon_datalist("./data/dataset_nas.json", True, "training")
+Val_datalist = load_decathlon_datalist("./data/dataset_nas.json", True, "val")
 
 
 
@@ -102,14 +103,33 @@ train_ds = CacheDataset(
 train_loader = DataLoader(
     train_ds, batch_size=4, shuffle=True, num_workers=8, pin_memory=True
 )
-print("num of train {}".format(len(train_ds)))
 
-device = get_device(1)
+
+sa_ds = CacheDataset(
+    data=Val_datalist,
+    transform=train_transforms,
+    cache_num=24,
+    cache_rate=1.0,
+    num_workers=8,
+)
+sa_loader = DataLoader(
+    train_ds, batch_size=4, shuffle=True, num_workers=8, pin_memory=True
+)
+print("num of train {}, num of sa {}".format(len(train_ds), len(sa_ds)))
+
+device = get_device(2)
 # define the model
 model = Network((64, 64, 64), 3).to(device)
 
 
-##################################################################
+# define the optimizer for w
+model.update_w()
+w_opter = torch.optim.SGD(get_params_to_update(model), lr=0.005, weight_decay=0.0005, momentum=0.9)
+# # define the optimizer for a
+model.update_alpha()
+a_opter = torch.optim.Adam(get_params_to_update(model), lr=0.0003, weight_decay=0.001)
+
+
 
 # define the loss function
 dice_loss = DiceLoss(
@@ -125,10 +145,54 @@ def loss_function(dice, ce, pred, label, weight_ce, weight_dice):
 
 
 
-w_opter = torch.optim.Adam(model.parameters(), lr=1e-4)
+def search(model, train_loader, sa_loader, loss_function, opt_a, opt_w, epoch):
+    
+    model.train()
+    for i in range(epoch):
+        w_loss = 0.
+        a_loss = 0.
+        model.update_w()
+        for step, batch in enumerate(train_loader):
+            x, y = batch["image"].to(device), batch["label"].to(device)
+            opt_w.zero_grad()
+            x, y = batch["image"].to(device), batch["label"].to(device)
+            o = model(x)
+            loss = loss_function(dice_loss, ce_loss, o, y, 1.4, 1)
+            loss.backward()
+            print(loss.item())
+            opt_w.step()
+            w_loss += loss.item()
+
+        print("w is trained completed with loss {}".format(w_loss / (step+1)))
+        
+            
+
+        model.update_alpha()
+        for step, batch in enumerate(sa_loader):
+            x, y = batch["image"].to(device), batch["label"].to(device)
+            opt_a.zero_grad()
+            x, y = batch["image"].to(device), batch["label"].to(device)
+            o = model(x)
+            loss = loss_function(dice_loss, ce_loss, o, y, 1.4, 1)
+            print(loss.item())
+            loss.backward()
+            opt_a.step()
+            a_loss += loss.item()
+
+        print("a is trained completed with loss {}".format(a_loss / (step + 1)))
+
+        torch.save(model.state_dict(), "./model/search.ptb")
+        print("##############################")
+        print("model saved !")
+        print("epoch {} trained completed".format(i))
+        model.log()
+        print("##############################")
+
+
 
 def train_init(model, loader, loss_w, opt_w, epoch):
     model.train()
+    model.update_every()
     for i in range(epoch):
         l = 0.0
         for step, batch in enumerate(loader):
@@ -141,9 +205,11 @@ def train_init(model, loader, loss_w, opt_w, epoch):
             l += loss.item()
             
             print(loss.item())
-        torch.save(model.state_dict(), "./model/one_shot.ptb")
-        print("model saved !")
+
         print("Finished training on " + str(i) + " epoch")
         print("loss is {}".format(l / (step + 1)))
 
-train_init(model, train_loader, loss_function, w_opter, 4000)
+train_init(model, train_loader, loss_function, w_opter, 20)
+
+search(model, train_loader, sa_loader, loss_function, a_opter, w_opter, 3000)
+torch.save(model.state_dict(), "./model/search.ptb")

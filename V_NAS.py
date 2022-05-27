@@ -373,14 +373,22 @@ class Network(nn.Module):
                 print(j.alpha.data)
 
 
-def check2():
+
+
+if __name__ == "__main__":
+    from monai.losses import DiceCELoss, DiceLoss
+
+    loss_function = DiceLoss(True, True, True)
+
+    
     model = Network((64, 64, 64), 3)
     # x = torch.rand(2, 1, 64, 64, 64)
     # o = model(x)
     # print(o.shape)
     x = torch.rand(1, 1, 64, 64, 64)
+    y = torch.randint(0, 3, x.shape)
     o = model(x)
-    print(o.shape)
+    print(o.shape, loss_function(o, y))
 
 
-# check2()
+    
