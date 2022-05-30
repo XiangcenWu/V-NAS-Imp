@@ -2,17 +2,17 @@
 downlad the data from https://drive.google.com/file/d/1YZQFSonulXuagMIfbJkZeTFJ6qEUuUxL/view?usp=sharing and extract files to a ./data folder
 
 Do something like this
-.
-├── data
-│   ├── dataset.json
-│   ├── imagesTr
-│   ├── imagesTs
-│   └── labelsTr
-├── V_NAS.py
-├── main.py
-...
-...
-...
+.  
+├── data  
+│   ├── dataset.json  
+│   ├── imagesTr  
+│   ├── imagesTs  
+│   └── labelsTr  
+├── V_NAS.py  
+├── main.py  
+...  
+...  
+...  
 
 # V_NAS.py
 
