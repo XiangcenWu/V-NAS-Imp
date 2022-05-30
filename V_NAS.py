@@ -273,7 +273,7 @@ class Network(nn.Module):
         self.Decoder_5 = nn.Sequential(*self.init_decoder(40))
 
         # change this into a pyramid
-        self.pvp = PVP(40, 3, input)
+        self.pvp = PVP(40, out_channel, input)
 
 
 
@@ -300,7 +300,6 @@ class Network(nn.Module):
         x6 = self.Encoder_4(self.cmd_4(x5))
         
         
-
         x5 = x5 + self.up_1(x6)
         x4 = x4 + self.up_2(self.Decoder_1(x5))
         x3 = x3 + self.up_3(self.Decoder_2(x4))
@@ -385,10 +384,10 @@ if __name__ == "__main__":
     # x = torch.rand(2, 1, 64, 64, 64)
     # o = model(x)
     # print(o.shape)
-    x = torch.rand(1, 1, 64, 64, 64)
-    y = torch.randint(0, 3, x.shape)
+    x = torch.rand(16, 1, 64, 64, 64)
+    
     o = model(x)
-    print(o.shape, loss_function(o, y))
+    print(o.shape)
 
 
     
